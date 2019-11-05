@@ -4,8 +4,15 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
+pylint = "*"
+black = "*"
+v = {editable = true,version = "*"}
 
 [packages]
+redis = "~=3.3"
 
 [requires]
 python_version = "3.7"
+
+[pipenv]
+allow_prereleases = true
