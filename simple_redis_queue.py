@@ -108,6 +108,7 @@ class SimpleRedisQueue(object):
         It is also to bulk post items into the queue, which can be significantly faster if you have a large number of items :
         
         >>> queue.put("MY first bulk item", ["my", "second", "bulk", "item"], {msg:"Another queue bulk item", created_at:1572972413, status:WAITING})
+
         """
         if self.__serializer is not None:
             items = map(self.__serializer.dumps, items)
@@ -153,14 +154,12 @@ class SimpleRedisQueue(object):
         """
         if block:
             timeout = timeout or 0
-            print(self.key, timeout)
 
             item = self.__db.blpop(self.key, timeout=timeout)
             if item is not None:
                 item = item[1]
         else:
             item = self.__db.lpop(self.key)
-            print(self.key, item)
         if item is not None and self.__serializer is not None:
             item = self.__serializer.loads(item)
         return item
