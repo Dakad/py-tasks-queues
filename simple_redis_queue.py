@@ -85,9 +85,9 @@ class SimpleRedisQueue(object):
         self.__serializer = serializer
 
         if redis_instance is None:
-            self.__db = StrictRedis(**redis_kwargs)
+            self.__redis = StrictRedis(**redis_kwargs)
         else:
-            self.__db = redis_instance
+            self.__redis = redis_instance
 
         self.__logger = logging.getLogger("{}.{}".format(__name__, type(self).__name__))
         self.key = key_for_name(name, namespace)
@@ -98,12 +98,12 @@ class SimpleRedisQueue(object):
 
     @property
     def redis_instance(self):
-        return self.__db
+        return self.__redis
 
     def qsize(self):
         """Return the approximate size of the queue.
         """
-        return self.__db.llen(self.key)
+        return self.__redis.llen(self.key)
 
     def is_empty(self):
         """Return ``True`` if the queue is empty, ``False`` otherwise."""
@@ -112,7 +112,7 @@ class SimpleRedisQueue(object):
     def clear(self):
         """Clear the queue items in the queue by deleting the Redis key
         """
-        return self.__db.delete(self.key)
+        return self.__redis.delete(self.key)
 
     def put(self, *items):
         """Put one or many item into the queue.
@@ -128,7 +128,7 @@ class SimpleRedisQueue(object):
         """
         if self.__serializer is not None:
             items = map(self.__serializer.dumps, items)
-        self.__db.rpush(self.key, *items)
+        self.__redis.rpush(self.key, *items)
 
     def consume(self, limit=None, **kwargs):
         """Return a generator that yields whenever an item is waiting in the queue. 
@@ -178,13 +178,13 @@ class SimpleRedisQueue(object):
         if block:
             timeout = timeout or 0
 
-            item = self.__db.blpop(self.key, timeout=timeout)
+            item = self.__redis.blpop(self.key, timeout=timeout)
             if item is None:
                 raise QueueEmptyError("Redis queue {} was empty after {}sec".format(self.key, timeout))
             else:
                 item = item[1]
         else:
-            item = self.__db.lpop(self.key)
+            item = self.__redis.lpop(self.key)
             if item is None:
                 raise QueueEmptyError("Redis queue {} was empty after {}sec".format(self.key, timeout))
         if item is not None and self.__serializer is not None:
