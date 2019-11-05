@@ -109,7 +109,7 @@ if __name__ == '__main__':
     ]
     parse_goodreads_urls(urls)
     q2 = SimpleRedisQueue("bookInfoParser", serializer=json)
-    for url in q2.consume():
+    for url in q2.consume(limit=3):
         # print(url)
         parse_and_persist_book_info(url)
     

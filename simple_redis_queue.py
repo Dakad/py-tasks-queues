@@ -9,11 +9,17 @@ Heavily influenced by :
 from functools import wraps
 from datetime import datetime
 import logging
+from queue import Empty
 import time
 import uuid
 
-import redis
+from redis import StrictRedis
 
+class QueueTimeoutError(Exception):
+    pass
+
+class QueueEmptyError(Empty):
+    pass
 
 def setup_logger_lever(name, level):
     """[summary]
@@ -48,7 +54,7 @@ def key_for_name(name, namespace="QUEUE"):
         name {[type]} -- [description]
     """
     name = name or str(uuid.uuid4())
-    return "%s:%s" % (namespace, name)
+    return "{}:{}".format(namespace.upper(), name)
 
 
 class SimpleRedisQueue(object):
@@ -73,23 +79,33 @@ class SimpleRedisQueue(object):
         :attr:`host`, :attr:`port`, :attr:`db`
     """
 
-    def __init__(self, name=None, namespace="QUEUE", serializer=None, **redis_kwargs):
+    def __init__(self, name=None, namespace="QUEUE", serializer=None, redis_instance=None, **redis_kwargs):
         """The default connection parameters are: host='localhost', port=6379, db=0"""
         self.__name = name
         self.__serializer = serializer
-        self.__db = redis.Redis(**redis_kwargs)
+
+        if redis_instance is None:
+            self.__db = StrictRedis(**redis_kwargs)
+        else:
+            self.__db = redis_instance
+
         self.__logger = logging.getLogger("{}.{}".format(__name__, type(self).__name__))
         self.key = key_for_name(name, namespace)
 
     def __len__(self):
         return self.qsize()
 
+
+    @property
+    def redis_instance(self):
+        return self.__db
+
     def qsize(self):
         """Return the approximate size of the queue.
         """
         return self.__db.llen(self.key)
 
-    def empty(self):
+    def is_empty(self):
         """Return ``True`` if the queue is empty, ``False`` otherwise."""
         return self.qsize() == 0
 
@@ -114,7 +130,7 @@ class SimpleRedisQueue(object):
             items = map(self.__serializer.dumps, items)
         self.__db.rpush(self.key, *items)
 
-    def consume(self, **kwargs):
+    def consume(self, limit=None, **kwargs):
         """Return a generator that yields whenever an item is waiting in the queue. 
         Otherwise, will bock
 
@@ -125,17 +141,23 @@ class SimpleRedisQueue(object):
         ... 
         The third remaining todo
 
+        :param limi: Maximum number of items to retrieve. By default, set to ``None``, i.e. infinite)
         :param kwargs: any acceptable args for :meth:`simple-redis-queue.SimpleRedisQueue.get`
         """
-        try:
-            while True:
+        limit = limit or float("inf")
+        count = 0
+        while count < limit:
+            try:
                 item = self.get(**kwargs)
                 if item is None:
                     break
-                yield item
-        except KeyboardInterrupt:
-            print
-            return
+            except Empty:
+                break
+            except KeyboardInterrupt:
+                print()
+                return
+            yield item
+            count += 1
 
 
     def get(self, block=False, timeout=None):
@@ -146,8 +168,9 @@ class SimpleRedisQueue(object):
         >>> queue.get()
         {msg:"Another queue item", created_at:1572972413, status:WAITING}
 
-        :param block: Whether or not to wait until an item is available in the queue before returning, set by default to ``False``
-        :param timeout: When using :attr:`block`, if no item is availble for :attr:`timeout`in seconds, give up and return ``None``
+        :param block: Whether or not to wait until an item is available in the queue before returning, set by default to ``False``.
+            Will raise ``queue.Empty`` exception if no item is available
+        :param timeout: When using :attr:`block`, if no item is availble for :attr:`timeout`in seconds, raise ``queue.Empty`` exception.
 
         If :attr:`block` is ``True`` and timeout is None (the default), block
         if necessary until an item is available.
@@ -156,12 +179,18 @@ class SimpleRedisQueue(object):
             timeout = timeout or 0
 
             item = self.__db.blpop(self.key, timeout=timeout)
-            if item is not None:
+            if item is None:
+                raise QueueEmptyError("Redis queue {} was empty after {}sec".format(self.key, timeout))
+            else:
                 item = item[1]
         else:
             item = self.__db.lpop(self.key)
+            if item is None:
+                raise QueueEmptyError("Redis queue {} was empty after {}sec".format(self.key, timeout))
         if item is not None and self.__serializer is not None:
             item = self.__serializer.loads(item)
+        if isinstance(item, bytes):
+            item = item.decode()
         return item
 
     def get_wait(self):
