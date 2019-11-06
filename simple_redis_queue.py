@@ -61,21 +61,8 @@ def setup_logger_lever(name, level):
 setup_logger_lever("HIGHEST_IN_THE_ROOM", 5)
 
 
-def key_for_name(name, namespace="QUEUE"):
-    """Get an specific name used to store for the given queue name in Redis.
-    
-    Arguments:
-        name {[type]} -- [description]
-    """
-    name = name or str(uuid.uuid4())
-    return "{}:{}".format(namespace.upper(), name)
-
 
 class SimpleRedisQueue(object):
-    """Simple FIFO Queue with Redis list as backend message broker
-    
-    """
-
     """Simple FIFO Queue with Redis List as backend message brocker
 
     Example :
@@ -91,15 +78,21 @@ class SimpleRedisQueue(object):
     See the following library class for more details : `pickle <http://docs.python.org/library/pickle.html>`
     :param redis_kwargs: Extra kwargs to pass to :class `Redis`, mostly 
         :attr:`host`, :attr:`port`, :attr:`db`
+
+    Additionally, contains an ``n_tasks()`` method exposing the number of items put onto
+    the queue without ``task_done()`` being called for them, and an ``n_in_progress()``
+    method to count how many have been fetched from the queue with ``task_done()`` being
+    called.
     """
 
     def __init__(self, name=None, namespace="QUEUE", serializer=None, redis_instance=None, **redis_kwargs):
         """The default connection parameters are: host='localhost', port=6379, db=0"""
-        self.__name = name
+        self.__name = name or str(uuid.uuid4())
         self.__serializer = serializer
         self.__redis = _ensure_redis(redis_instance)
         self.__logger = logging.getLogger("{}.{}".format(__name__, type(self).__name__))
-        self.key = key_for_name(name, namespace)
+        self.__task_counter_key =  self.__name + '__task-counter'
+        self.key = "{}:{}".format(namespace.upper(), name)
 
     def __len__(self):
         return self.qsize()
@@ -121,7 +114,9 @@ class SimpleRedisQueue(object):
     def clear(self):
         """Clear the queue items in the queue by deleting the Redis key
         """
-        return self.__redis.delete(self.key)
+        self.__redis.delete(self.key)
+        self.__redis.delete(self.__task_counter_key)
+
 
     def put(self, *items):
         """Put one or many item into the queue.
@@ -136,8 +131,9 @@ class SimpleRedisQueue(object):
 
         """
         if self.__serializer is not None:
-            items = map(self.__serializer.dumps, items)
+            items = list(map(self.__serializer.dumps, items))
         self.__redis.rpush(self.key, *items)
+        self.__redis.incrby(self.__task_counter_key, len(items))
 
     def consume(self, limit=None, **kwargs):
         """Return a generator that yields whenever an item is waiting in the queue. 
@@ -186,7 +182,6 @@ class SimpleRedisQueue(object):
         """
         if block:
             timeout = timeout or 0
-
             item = self.__redis.blpop(self.key, timeout=timeout)
             if item is None:
                 raise QueueEmptyError("Redis queue {} was empty after {}sec".format(self.key, timeout))
@@ -206,6 +201,35 @@ class SimpleRedisQueue(object):
         """Equivalent to get(block=True).
         """
         return self.get(True)
+
+
+    def n_tasks(self):
+        """How many items have been put into the queue without a respective amount of ``task_done()`` call
+        """
+        return int(self.__redis.get(self.__task_counter_key))
+
+
+    def n_in_progress(self):
+        """How many items have been retrieved from the queue without a respective amount of ``task_done()`` being called for them
+        """
+        return self.n_tasks() - self.qsize()
+
+    
+    def task_done(self):
+        """Indicates hat formely enqueued task is completed
+
+        Used by queue consummers.
+        For each ``get()``used to fetch a task, a subsquent call to ``task_done()``tells the queue that the processing on the task is completed.
+
+        If a ``join``is currently blocking, it will resume when all items have been processesd (meaning that a ``task_done()``call was received for every time that had been ``put``into the queue).
+
+        Raises a ``ValueError``if called more times than there were items placed in the queue. 
+        """
+        if(self.qsize() == 0):
+            raise ValueError("No more item available in the queue")
+        return self.__redis.decr(self.__task_counter_key)
+
+
 
     def worker(self, *args, **kwargs):
         """Decorator for using a function as a queue worker. Example:

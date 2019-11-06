@@ -12,14 +12,16 @@ from bs4 import BeautifulSoup
 
 # Spawn a client connection to redis server. Here Docker
 # provieds a link to our local redis server usinf 'redis'
+redis_q_connector = Redis(db=1)
 redisClient = Redis(db=3)
+
 
 # Initialize a redis queue instance with name 'bookInfoParser'.
 # This name will be used while declaring worker process so that it can
 # start processing tasks in it.
 
 json = Json(dumps_kwargs=dict(ensure_ascii=False))
-bookInfoParserQueue = SimpleRedisQueue("bookInfoParser", serializer=json)
+bookInfoParserQueue = SimpleRedisQueue("bookInfoParser", redis_instance=redis_q_connector, serializer=json)
 
 #################################
 ###### Methods ##################
@@ -109,9 +111,10 @@ if __name__ == '__main__':
         "https://www.goodreads.com/book/show/42785750-sulwe"
     ]
     parse_goodreads_urls(urls)
-    q2 = SimpleRedisQueue("bookInfoParser", serializer=json)
+    q2 = SimpleRedisQueue("bookInfoParser", redis_instance=redis_q_connector, serializer=json)
 
     for url in q2.consume(limit=5):
         # print(url)        
         redis_key, book_info = parse_book_url(url)
-        redisClient.set(redis_key, json.dumps(book_info))
+        q2.task_done()
+        redisClient.hmset(redis_key, book_info)
