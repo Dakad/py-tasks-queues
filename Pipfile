@@ -10,10 +10,12 @@ v = {editable = true,version = "*"}
 redislite = "*"
 
 [packages]
-redis = "~=3.3"
 requests = "*"
 rq = "*"
 bs4 = "*"
+click = "*"
+tqdm = "*"
+redis = "~=3.3"
 
 [requires]
 python_version = "3.7"
