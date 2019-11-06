@@ -13,13 +13,27 @@ from queue import Empty
 import time
 import uuid
 
-from redis import StrictRedis
 
 class QueueTimeoutError(Exception):
     pass
 
 class QueueEmptyError(Empty):
     pass
+
+
+def _ensure_redis(redis):
+    if redis:
+        return redis
+
+    try:
+        import redislite
+        return redislite.Redis('./tmp/redis.db')
+    except ImportError:
+        raise ValueError(
+            "Redis instance not given and redislite not importable. Run at least\n"
+            "pip install redislite"
+        )
+
 
 def setup_logger_lever(name, level):
     """[summary]
@@ -83,12 +97,7 @@ class SimpleRedisQueue(object):
         """The default connection parameters are: host='localhost', port=6379, db=0"""
         self.__name = name
         self.__serializer = serializer
-
-        if redis_instance is None:
-            self.__redis = StrictRedis(**redis_kwargs)
-        else:
-            self.__redis = redis_instance
-
+        self.__redis = _ensure_redis(redis_instance)
         self.__logger = logging.getLogger("{}.{}".format(__name__, type(self).__name__))
         self.key = key_for_name(name, namespace)
 

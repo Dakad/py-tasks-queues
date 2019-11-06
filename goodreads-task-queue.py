@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 # Spawn a client connection to redis server. Here Docker
 # provieds a link to our local redis server usinf 'redis'
-redisClient = Redis()
+redisClient = Redis(db=3)
 
 # Initialize a redis queue instance with name 'bookInfoParser'.
 # This name will be used while declaring worker process so that it can
@@ -50,10 +50,9 @@ def parse_book_link_for_meta_data(bookLink):
         print(bookLink)
         return
 
-def parse_and_persist_book_info(bookUrl):
+def parse_book_url(bookUrl):
     redisKey = generate_redis_key_for_book(bookUrl)
-    bookInfo = parse_book_link_for_meta_data(bookUrl)
-    redisClient.set(redisKey, json.dumps(bookInfo))
+    return redisKey, parse_book_link_for_meta_data(bookUrl)
 
 
 def parse_goodreads_urls(urls):
@@ -62,8 +61,8 @@ def parse_goodreads_urls(urls):
         if (len(bookLinksArray)):
             for bookUrl in bookLinksArray:
                 bookInfoParserQueue.put(bookUrl)
-                # bookInfoParserQueue.enqueue_call(func=parse_and_persist_book_info,args=(bookUrl,),job_id=bookUrl)
-            return "%d books are scheduled for info parsing."%(len(bookLinksArray))
+                # bookInfoParserQueue.enqueue_call(func=parse_book_url,args=(bookUrl,),job_id=bookUrl)
+            print("%d books are scheduled for info parsing."%(len(bookLinksArray)))
     return "Only array of goodreads book links is accepted.",400
 
 
@@ -79,6 +78,8 @@ def parse_goodreads_urls(urls):
 
 
 if __name__ == '__main__':
+    # from redis import StrictRedis
+
     urls = [
         "https://www.goodreads.com/book/show/42975172-the-testaments",
         "https://www.goodreads.com/book/show/41723456-the-overdue-life-of-amy-byler",
@@ -109,7 +110,8 @@ if __name__ == '__main__':
     ]
     parse_goodreads_urls(urls)
     q2 = SimpleRedisQueue("bookInfoParser", serializer=json)
-    for url in q2.consume(limit=3):
-        # print(url)
-        parse_and_persist_book_info(url)
-    
+
+    for url in q2.consume(limit=5):
+        # print(url)        
+        redis_key, book_info = parse_book_url(url)
+        redisClient.set(redis_key, json.dumps(book_info))
