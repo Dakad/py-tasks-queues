@@ -267,6 +267,53 @@ class SimpleRedisQueue(object):
         return decorator
 
 
+
+    def wait(self, timeout= None):
+        """
+        Block until all items in the queue have been retrived adnd processed.
+
+        The count of unfinished tasks increases whenever an item is added into the queue.
+        The count decreases whenever a consummer calls ``task_done()``to indicate that
+        the item was retrieved and all work on it is complete.
+        When the count of unfinished tasks drops to 0, ``wait``unblocks. 
+        
+        Arguments:
+            timeout {Float} -- timeout in seconds. 
+                Raise ``QueueTimeoutError`` when the timeout is reached.
+        """
+        timeout = timeout or float("inf")
+        started_at = datetime.utcnow()
+        n_tasks = self.n_tasks()
+        while self.n_tasks() > 0:
+            sleep_time = "now"
+            if timeout is not float("inf"):
+                sleep_time = "for {} sec".format(timeout)
+            self.__logger.info("{} tasks remaining, sleeping {} ... ".format(n_tasks, sleep_time))
+
+            time.sleep(0.5)
+
+            elapsed = datetime.utcnow() - started_at
+            if elapsed.total_seconds() > timeout:
+                raise QueueTimeoutError("Queue waiting timed out")
+
+            n_tasks = self.n_tasks()
+
+        self.__logger.debug("Waited successfully")
+    def join(self):
+        """Like ``wait``, but without a timeout
+        """
+        return self.wait()
+
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, _type, value, traceback):
+        self.wait(3) # Wait for 3 seconds before exit
+        self.clear()
+
+
+
 if __name__ == "__main__":
     import json
 

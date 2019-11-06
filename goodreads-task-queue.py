@@ -111,10 +111,10 @@ if __name__ == '__main__':
         "https://www.goodreads.com/book/show/42785750-sulwe"
     ]
     parse_goodreads_urls(urls)
-    q2 = SimpleRedisQueue("bookInfoParser", redis_instance=redis_q_connector, serializer=json)
 
-    for url in q2.consume(limit=5):
-        # print(url)        
-        redis_key, book_info = parse_book_url(url)
-        q2.task_done()
-        redisClient.hmset(redis_key, book_info)
+    with SimpleRedisQueue("bookInfoParser", redis_instance=redis_q_connector, serializer=json) as q2:
+        for url in q2.consume(limit=5):
+            # print(url)        
+            redis_key, book_info = parse_book_url(url)
+            q2.task_done()
+            redisClient.hmset(redis_key, book_info)
